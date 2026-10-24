@@ -1,0 +1,12 @@
+.venv/
+.venv312/
+__pycache__/
+.pytest_cache/
+*.pyc
+build/
+dist/
+*.spec
+output/_inspection_repaired.xlsx
+*.xlsx
+*.xls
+
