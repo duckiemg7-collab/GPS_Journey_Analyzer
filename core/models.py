@@ -28,6 +28,7 @@ class AnalysisResult:
             "days": int(self.daily["date"].nunique()) if not self.daily.empty else 0,
             "records": int(len(self.details)),
             "device_original_km": total("device_original_km"),
+            "device_unallocated_km": total("device_unallocated_km"),
             "gps_filtered_km": total("gps_filtered_km"),
             "gps_unverified_km": total("gps_unverified_km"),
             "device_corrected_km": total("device_corrected_km"),

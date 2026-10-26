@@ -90,7 +90,10 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
     wb.calculation.forceFullCalc = True
     wb.calculation.calcMode = "auto"
 
-    summary = result.daily.drop(columns=["source_file", "gps_unverified_km"], errors="ignore").copy()
+    summary = result.daily.drop(
+        columns=["source_file", "gps_unverified_km", "device_unallocated_km"],
+        errors="ignore",
+    ).copy()
     summary.columns = [
         "Ngày",
         "Thiết bị",

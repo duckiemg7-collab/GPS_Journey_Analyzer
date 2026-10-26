@@ -14,6 +14,15 @@ def _plain(value: object) -> str:
     return "".join(c for c in text if unicodedata.category(c) != "Mn").replace("đ", "d")
 
 
+def _status_flags(value: object) -> tuple[bool, bool, bool]:
+    """Map the status vocabulary found in source Excel files."""
+    text = _plain(value).replace("_", " ").replace("-", " ")
+    stopped = any(token in text for token in ("dung", "do", "stop", "park", "idle", "nghi", "tat may", "engine off"))
+    running = any(token in text for token in ("chay", "run", "moving", "di chuyen", "hoat dong", "engine on"))
+    signal_loss = any(token in text for token in ("mat gps", "mat tin hieu", "gps lost", "no gps", "offline", "lost signal"))
+    return stopped, running, signal_loss
+
+
 def _append_reason(frame: pd.DataFrame, index: int, reason: str) -> None:
     old = str(frame.at[index, "warning_reason"] or "")
     frame.at[index, "warning_reason"] = f"{old}; {reason}".strip("; ")
@@ -43,14 +52,41 @@ def calculate_pair_metrics(frame: pd.DataFrame) -> pd.DataFrame:
     out["confirmed_false_km"] = 0.0
     out["gps_filtered_segment_km"] = 0.0
     out["gps_unverified_segment_km"] = 0.0
+    out["gps_unverified_start_index"] = pd.NA
+    out["gps_unverified_end_index"] = pd.NA
+    out["gps_unverified_reason"] = ""
     out["event_type"] = ""
     return out
 
 
-def _positive_device_km(frame: pd.DataFrame, indexes: list[int]) -> float:
-    values = pd.to_numeric(frame.loc[indexes, "device_km"], errors="coerce")
-    deltas = values.diff()
-    return float(deltas[deltas > 0].sum()) if deltas.notna().any() else 0.0
+def _confirmed_counter_anomaly(
+    frame: pd.DataFrame, anchor_i: int, middle: list[int], end_i: int
+) -> float:
+    """Confirm only the counter increase seen after a flat noisy cluster."""
+    values = pd.to_numeric(frame.loc[[anchor_i, *middle, end_i], "device_km"], errors="coerce")
+    if values.isna().any():
+        return 0.0
+    baseline = float(values.iloc[0])
+    middle_values = values.iloc[1:-1]
+    if not middle_values.empty and float(middle_values.max() - baseline) > 0.3:
+        return 0.0
+    increase_at_return = float(values.iloc[-1] - baseline)
+    return increase_at_return if increase_at_return > 0.3 else 0.0
+
+
+def _record_unverified(
+    frame: pd.DataFrame,
+    end_i: int,
+    start_i: int | None,
+    distance: float | int | None,
+    reason: str,
+) -> None:
+    if start_i is None or pd.isna(distance):
+        return
+    frame.at[end_i, "gps_unverified_segment_km"] = float(distance)
+    frame.at[end_i, "gps_unverified_start_index"] = int(start_i)
+    frame.at[end_i, "gps_unverified_end_index"] = int(end_i)
+    frame.at[end_i, "gps_unverified_reason"] = reason
 
 
 def _mark_suspect(frame: pd.DataFrame, index: int, reason: str, event: str) -> None:
@@ -123,9 +159,8 @@ def _confirm_returning_clusters(
             stationary = speeds.notna() & (speeds <= stop_speed_kmh)
             stationary |= statuses.str.contains("dung|do|stop", na=False)
             stationary_ratio = float(stationary.mean()) if len(stationary) else 0.0
-            internal_km = _positive_device_km(frame, [anchor_i, *middle])
-            false_km = _positive_device_km(frame, [anchor_i, *middle, end_i])
-            if stationary_ratio < 0.7 or internal_km > 0.3 or (false_km <= 0.3 and len(middle) < 2):
+            false_km = _confirmed_counter_anomaly(frame, anchor_i, middle, end_i)
+            if stationary_ratio < 0.7 or (false_km <= 0.3 and len(middle) < 2):
                 continue
             label = "GPS Jump and Return" if len(middle) <= 2 else "GPS Cluster Outlier"
             for m in middle:
@@ -146,26 +181,51 @@ def _rebuild_gps_segments(frame: pd.DataFrame, indexes: list[int], speed_limit: 
     """Rebuild segments from the nearest accepted point, without bridging gaps."""
     anchor_i: int | None = None
     hard_break = True
+    pending_excluded = False
     for i in indexes:
         status = str(frame.at[i, "algorithm_status"])
         if status in {"INVALID_COORDINATE", "NEED_REVIEW", "GPS_GAP"}:
+            if status == "GPS_GAP" and anchor_i is not None and not pd.isna(frame.at[i, "latitude"]):
+                distance = point_distance_km(
+                    frame.at[anchor_i, "latitude"], frame.at[anchor_i, "longitude"],
+                    frame.at[i, "latitude"], frame.at[i, "longitude"],
+                )
+                _record_unverified(frame, i, anchor_i, distance, "GPS gap")
             hard_break = True
             anchor_i = None
+            pending_excluded = False
             continue
         if pd.isna(frame.at[i, "latitude"]) or pd.isna(frame.at[i, "timestamp"]):
             hard_break = True
             anchor_i = None
+            pending_excluded = False
             continue
         if frame.at[i, "exclude_from_gps"]:
+            if anchor_i is not None and not pd.isna(frame.at[i, "latitude"]):
+                distance = point_distance_km(
+                    frame.at[anchor_i, "latitude"], frame.at[anchor_i, "longitude"],
+                    frame.at[i, "latitude"], frame.at[i, "longitude"],
+                )
+                _record_unverified(frame, i, anchor_i, distance, "Excluded GPS point")
+                anchor_i = i
+                pending_excluded = True
             continue
         if anchor_i is None or hard_break:
             anchor_i = i
             hard_break = False
+            pending_excluded = False
+            continue
+        if pending_excluded:
+            anchor_i = i
+            pending_excluded = False
             continue
         dt = (frame.at[i, "timestamp"] - frame.at[anchor_i, "timestamp"]).total_seconds()
         if dt <= 0 or frame.at[i, "cross_day"] or dt > max_gap_seconds:
-            raw = frame.at[i, "raw_distance_km"]
-            frame.at[i, "gps_unverified_segment_km"] = float(raw) if pd.notna(raw) else 0.0
+            distance = point_distance_km(
+                frame.at[anchor_i, "latitude"], frame.at[anchor_i, "longitude"],
+                frame.at[i, "latitude"], frame.at[i, "longitude"],
+            )
+            _record_unverified(frame, i, anchor_i, distance, "GPS gap or day boundary")
             hard_break = True
             anchor_i = None
             continue
@@ -176,7 +236,9 @@ def _rebuild_gps_segments(frame: pd.DataFrame, indexes: list[int], speed_limit: 
         speed = distance / (dt / 3600.0)
         if speed > speed_limit * 1.02:
             _mark_suspect(frame, i, f"Vận tốc nối lại {speed:.1f} km/h vượt ngưỡng {speed_limit:.0f}", "GPS Teleport")
-            frame.at[i, "gps_unverified_segment_km"] = distance
+            _record_unverified(frame, i, anchor_i, distance, "GPS teleport")
+            anchor_i = i
+            pending_excluded = True
             continue
         frame.at[i, "gps_filtered_segment_km"] = distance
         anchor_i = i
@@ -191,10 +253,10 @@ def detect_and_filter(frame: pd.DataFrame, settings: FilterSettings) -> pd.DataF
     for _, indexes_group in out.groupby("device_id", sort=False).groups.items():
         indexes = list(indexes_group)
         candidate_positions: list[int] = []
-        statuses_plain = out.loc[indexes, "device_status"].map(_plain)
+        status_flags = out.loc[indexes, "device_status"].map(_status_flags)
         speeds = pd.to_numeric(out.loc[indexes, "device_speed_kmh"], errors="coerce")
-        explicit_stop = statuses_plain.str.contains("dung|do|stop", na=False)
-        signal_loss = statuses_plain.str.contains("mat gps|mat tin hieu", na=False)
+        explicit_stop = status_flags.map(lambda flags: flags[0])
+        signal_loss = status_flags.map(lambda flags: flags[2])
 
         for pos, i in enumerate(indexes):
             if pos == 0:
@@ -213,11 +275,11 @@ def detect_and_filter(frame: pd.DataFrame, settings: FilterSettings) -> pd.DataF
             if out.at[i, "cross_day"]:
                 if distance > stop_radius_km:
                     _mark_gap(out, i, "Đoạn nối qua ngày; không tự cộng quãng đường")
-                    out.at[i, "gps_unverified_segment_km"] = float(distance)
+                    _record_unverified(out, i, indexes[pos - 1], distance, "GPS day boundary")
                 continue
             if signal_loss.iloc[pos] or signal_loss.iloc[pos - 1]:
                 _mark_gap(out, i, "Thiết bị báo mất GPS; không tự nối quãng đường")
-                out.at[i, "gps_unverified_segment_km"] = float(distance)
+                _record_unverified(out, i, indexes[pos - 1], distance, "Signal loss")
                 continue
             prev_speed = speeds.iloc[pos - 1]
             current_speed = speeds.iloc[pos]
@@ -232,11 +294,11 @@ def detect_and_filter(frame: pd.DataFrame, settings: FilterSettings) -> pd.DataF
             stationary_drift = stopped_edge and distance > stop_radius_km and device_stationary
             if dt > effective.max_gps_gap_seconds and distance > stop_radius_km and not (stationary_drift or impossible_speed):
                 _mark_gap(out, i, f"Khoảng cách mẫu {dt:.0f} giây; không tự nối quãng đường")
-                out.at[i, "gps_unverified_segment_km"] = float(distance)
+                _record_unverified(out, i, indexes[pos - 1], distance, "GPS gap")
                 continue
             if stationary_drift or impossible_speed:
                 candidate_positions.append(pos)
-                out.at[i, "gps_unverified_segment_km"] = float(distance)
+                _record_unverified(out, i, indexes[pos - 1], distance, "Stationary drift" if stationary_drift else "GPS teleport")
                 if stationary_drift:
                     _mark_suspect(out, i, f"Xe dừng nhưng tọa độ trôi {distance * 1000:.0f} m", "GPS Drift")
                     out.at[i, "algorithm_status"] = "GPS_DRIFT"

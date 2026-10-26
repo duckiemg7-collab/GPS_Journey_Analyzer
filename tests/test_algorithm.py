@@ -80,6 +80,19 @@ def test_jump_18_km_and_return_confirms_false_device_km():
     assert data["gps_filtered_segment_km"].sum() == pytest.approx(0)
 
 
+def test_returning_cluster_does_not_write_off_counter_progress_inside_cluster():
+    data = run(
+        [
+            ("2026-10-03 09:30:00", 10.7062, -106.6057, 0, 100.0, "Xe dừng"),
+            ("2026-10-03 09:31:00", 10.6086, -106.7433, 0, 101.0, "Xe dừng"),
+            ("2026-10-03 09:40:00", 10.6086, -106.7433, 0, 102.0, "Xe dừng"),
+            ("2026-10-03 09:41:00", 10.7062, -106.6057, 5, 118.5, "Xe chạy lại"),
+        ]
+    )
+    assert data["confirmed_false_km"].sum() == pytest.approx(0.0)
+    assert data["gps_unverified_segment_km"].sum() > 0
+
+
 def test_multi_point_fake_cluster():
     rows = [("2026-10-04 13:40:00", 10.7060, -106.6056, 0, 20.0, "Xe dừng")]
     rows += [
@@ -203,6 +216,67 @@ def test_midnight_segment_not_added_to_either_day():
     daily = aggregate_daily(data)
     assert data.iloc[1]["gps_filtered_segment_km"] == 0
     assert daily.loc[daily["date"] == pd.Timestamp("2026-10-02").date(), "device_original_km"].iloc[0] == pytest.approx(0.4)
+    assert daily.loc[daily["date"] == pd.Timestamp("2026-10-02").date(), "device_unallocated_km"].iloc[0] == pytest.approx(1.0)
+
+
+def test_unverified_segment_keeps_actual_accepted_endpoint_pair():
+    data = run(
+        [
+            ("2026-10-01 08:00:00", 10.0000, -106.0, 30, 0.0),
+            ("2026-10-01 08:01:00", 10.1000, -106.0, 30, 1.0),
+            ("2026-10-01 08:02:00", 10.1010, -106.0, 30, 1.0),
+        ]
+    )
+    row = data.iloc[1]
+    assert row["gps_unverified_start_index"] == 0
+    assert row["gps_unverified_end_index"] == 1
+    assert row["gps_unverified_segment_km"] == pytest.approx(row["raw_distance_km"])
+    assert data.iloc[2]["gps_unverified_segment_km"] == 0
+
+
+def test_unknown_speed_is_not_treated_as_stopped():
+    data = run(
+        [
+            ("2026-10-01 08:00:00", 10.0, -106.0, None, 0.0, ""),
+            ("2026-10-01 08:01:00", 10.01, -106.0, None, 1.0, ""),
+        ]
+    )
+    assert data.iloc[1]["algorithm_status"] == "VALID"
+    assert data.iloc[1]["gps_filtered_segment_km"] > 0
+
+
+@pytest.mark.parametrize("status", ["Dừng đỗ", "STOP", "Đang đỗ xe"])
+def test_excel_stop_status_mapping_marks_coordinate_drift(status):
+    data = run(
+        [
+            ("2026-10-01 08:00:00", 10.0, -106.0, None, 0.0, status),
+            ("2026-10-01 08:00:10", 10.01, -106.0, None, 0.0, status),
+        ]
+    )
+    assert data.iloc[1]["algorithm_status"] == "GPS_DRIFT"
+
+
+def test_signal_loss_status_creates_unverified_gap():
+    data = run(
+        [
+            ("2026-10-01 08:00:00", 10.0, -106.0, 30, 0.0, "Đang chạy"),
+            ("2026-10-01 08:01:00", 10.01, -106.0, 30, 0.2, "Mất tín hiệu GPS"),
+        ]
+    )
+    assert data.iloc[1]["algorithm_status"] == "GPS_GAP"
+    assert data.iloc[1]["gps_unverified_segment_km"] > 0
+
+
+def test_filtered_and_unverified_segments_are_disjoint():
+    data = run(
+        [
+            ("2026-10-01 08:00:00", 10.0, -106.0, 30, 0.0),
+            ("2026-10-01 08:01:00", 10.1, -106.0, 30, 1.0),
+            ("2026-10-01 08:02:00", 10.2, -106.0, 30, 2.0),
+        ]
+    )
+    assert not ((data["gps_filtered_segment_km"] > 0) & (data["gps_unverified_segment_km"] > 0)).any()
+    assert (data["confirmed_false_km"] >= 0).all()
 
 
 def test_device_counter_reset_only_sums_positive_deltas():

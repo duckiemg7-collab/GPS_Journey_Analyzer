@@ -26,6 +26,12 @@ def aggregate_daily(details: pd.DataFrame, by_source_file: bool = False) -> pd.D
         group = group.sort_values(["timestamp", "input_order"], kind="stable")
         km = pd.to_numeric(group["device_km"], errors="coerce")
         deltas = km.diff()
+        boundary_unallocated = 0.0
+        if len(group) and bool(group.iloc[0].get("cross_day", False)):
+            first_delta = pd.to_numeric(group.iloc[0].get("device_km_delta"), errors="coerce")
+            if pd.notna(first_delta) and first_delta > 0:
+                boundary_unallocated = float(first_delta)
+                deltas.iloc[0] = np.nan
         # Positive deltas are real counter progress. Negative deltas are resets
         # and are never subtracted from the reported distance.
         device_original = float(deltas[deltas > 0].sum()) if km.notna().sum() >= 2 else np.nan
@@ -45,6 +51,7 @@ def aggregate_daily(details: pd.DataFrame, by_source_file: bool = False) -> pd.D
             "date": date,
             "device_id": device,
             "device_original_km": device_original,
+            "device_unallocated_km": boundary_unallocated,
             "gps_filtered_km": gps,
             "gps_unverified_km": unverified,
             "device_corrected_km": corrected,
