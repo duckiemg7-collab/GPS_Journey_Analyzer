@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import pytest
 
 from core.pipeline import analyze_paths
 
 
 def test_real_workbook_reads_and_reconciles_without_fixture_specific_targets():
-    source = next(Path("file_sample_excel").glob("*50CD00060A.xlsx"))
+    source = next(Path("file_sample_excel").glob("*50CD00060A.xlsx"), None)
+    if source is None:
+        pytest.skip("Real source workbook is not available")
     result = analyze_paths([source])
     assert len(result.details) > 0
     assert result.daily["date"].nunique() > 0

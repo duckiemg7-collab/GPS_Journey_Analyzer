@@ -4,63 +4,57 @@ import numpy as np
 import pandas as pd
 
 
-def aggregate_daily(details: pd.DataFrame, by_source_file: bool = False) -> pd.DataFrame:
-    """Aggregate after deduplication.
+def warning_mask(data: pd.DataFrame) -> pd.Series:
+    return data["algorithm_status"].ne("VALID") | data.get(
+        "device_anomaly_status", pd.Series("", index=data.index)
+    ).eq("NEED_REVIEW")
 
-    The authoritative total is device + date. ``by_source_file`` is only a
-    presentation view used to draw per-file separators in the UI.
+
+def aggregate_daily(details: pd.DataFrame, by_source_file: bool = False) -> pd.DataFrame:
+    """Allocate canonical edges once, then present all source records.
+
+    Cross-day km remain unallocated; their endpoint date is an audit bucket.
+    File views reuse the same edges rather than re-diffing each source file.
     """
     data = details.copy()
     data["date"] = data["timestamp"].dt.date
-    usable = data[data["algorithm_status"] != "DUPLICATE"]
-    group_columns = ["device_id", "date"]
-    if by_source_file:
-        group_columns.insert(0, "source_file")
-    rows: list[dict[str, object]] = []
-    for key, group in usable.groupby(group_columns, dropna=False, sort=True):
-        if by_source_file:
-            source_file, device, date = key
-        else:
-            device, date = key
-            source_file = None
-        group = group.sort_values(["timestamp", "input_order"], kind="stable")
-        km = pd.to_numeric(group["device_km"], errors="coerce")
-        deltas = km.diff()
-        boundary_unallocated = 0.0
-        if len(group) and bool(group.iloc[0].get("cross_day", False)):
-            first_delta = pd.to_numeric(group.iloc[0].get("device_km_delta"), errors="coerce")
-            if pd.notna(first_delta) and first_delta > 0:
-                boundary_unallocated = float(first_delta)
-                deltas.iloc[0] = np.nan
-        # Positive deltas are real counter progress. Negative deltas are resets
-        # and are never subtracted from the reported distance.
-        device_original = float(deltas[deltas > 0].sum()) if km.notna().sum() >= 2 else np.nan
-        false_km = float(pd.to_numeric(group["confirmed_false_km"], errors="coerce").sum())
-        valid_coords = group[["latitude", "longitude"]].notna().all(axis=1).sum()
-        gps = (
-            float(pd.to_numeric(group["gps_filtered_segment_km"], errors="coerce").sum())
-            if valid_coords >= 2
-            else np.nan
-        )
-        unverified = float(pd.to_numeric(group["gps_unverified_segment_km"], errors="coerce").sum())
-        corrected = max(0.0, device_original - false_km) if pd.notna(device_original) else np.nan
-        warnings = int((group["algorithm_status"] != "VALID").sum())
-        statuses = group.loc[group["algorithm_status"] != "VALID", "algorithm_status"].value_counts()
-        summary = ", ".join(f"{name}: {count}" for name, count in statuses.items())
-        row: dict[str, object] = {
-            "date": date,
-            "device_id": device,
-            "device_original_km": device_original,
-            "device_unallocated_km": boundary_unallocated,
+    keys = (["source_file"] if by_source_file else []) + ["device_id", "date"]
+    rows = []
+    for key, group in data.groupby(keys, dropna=False, sort=True):
+        device, date = key[-2:]
+        canonical = group[group["counter_eligible"]]
+        km = pd.to_numeric(canonical["device_allocated_segment_km"], errors="coerce")
+        original = km.sum(min_count=1)
+        unallocated = canonical["unallocated_device_segment_km"].sum(min_count=1)
+        false_km = canonical["confirmed_false_km"].sum()
+        gps_known = (~canonical.invalid_coordinate).sum() >= 2
+        gps = canonical["gps_filtered_segment_km"].sum() if gps_known else np.nan
+        unverified = canonical.loc[canonical.gps_segment_class.eq("UNVERIFIED"), "gps_unverified_segment_km"]
+        warning = warning_mask(group)
+        labels = group["algorithm_status"].where(group["algorithm_status"].ne("VALID"), "DEVICE_NEED_REVIEW")
+        statuses = labels.loc[warning].value_counts()
+        row = {
+            "date": date, "device_id": device,
+            "device_original_km": original,
+            "device_unallocated_km": unallocated,
+            "unallocated_device_km": unallocated,
+            "gps_raw_km": canonical["raw_distance_km"].sum(min_count=1),
             "gps_filtered_km": gps,
-            "gps_unverified_km": unverified,
-            "device_corrected_km": corrected,
+            "gps_unverified_km": unverified.sum(min_count=1) if len(unverified) else 0.0,
+            "unverified_unknown_reference_count": int(unverified.isna().sum()),
+            "gps_confirmed_outlier_km": canonical["gps_confirmed_outlier_segment_km"].sum(),
+            "device_corrected_km": original - false_km if pd.notna(original) else np.nan,
             "confirmed_false_km": false_km,
-            "warning_count": warnings,
-            "warnings": summary,
-            "record_count": int(len(group)),
+            "warning_count": int(warning.sum()),
+            "warnings": ", ".join(f"{status}: {count}" for status, count in statuses.items()),
+            "record_count": len(group),
+            "valid_record_count": int((group["algorithm_status"].eq("VALID") & ~warning).sum()),
+            "duplicate_record_count": int(group["is_duplicate"].sum()),
+            "excluded_record_count": int(group["exclude_from_gps"].sum()),
+            "gap_count": int(group["gps_segment_class"].eq("UNVERIFIED").sum()),
+            "unique_warning_events": group.loc[warning, "warning_event_id"].nunique() if "warning_event_id" in group else int(warning.sum()),
         }
         if by_source_file:
-            row["source_file"] = source_file
+            row["source_file"] = key[0]
         rows.append(row)
     return pd.DataFrame(rows)

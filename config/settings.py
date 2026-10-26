@@ -32,6 +32,6 @@ class FilterSettings:
         return asdict(self)
 
 
-ALGORITHM_VERSION = "1.1.0"
+ALGORITHM_VERSION = "1.2.0"
 EARTH_RADIUS_KM = 6371.0088
 

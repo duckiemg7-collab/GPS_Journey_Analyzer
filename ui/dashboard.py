@@ -76,7 +76,7 @@ class DashboardPage(QWidget):
             ("gps_filtered_km", "Km GPS sau lọc"),
             ("device_corrected_km", "Km thiết bị hiệu chỉnh"),
             ("confirmed_false_km", "Km lỗi xác nhận"),
-            ("events", "Số sự kiện nhiễu"),
+            ("events", "Bản ghi có cảnh báo"),
         ]
         self.cards = {}
         for i, (key, label) in enumerate(labels):
@@ -94,6 +94,15 @@ class DashboardPage(QWidget):
 
     def set_result(self, result: AnalysisResult) -> None:
         totals = result.totals
+        self.cards["records"].setToolTip("Tổng bản ghi nguồn, gồm duplicate và bản ghi bị loại; bảng ngày dùng cùng định nghĩa.")
+        self.cards["events"].setToolTip(
+            f"Valid: {totals.get('valid_records', 0):,.0f}; duplicate: {totals.get('duplicate_records', 0):,.0f}; "
+            f"excluded: {totals.get('excluded_records', 0):,.0f}; nhóm sự kiện: {totals.get('unique_warning_events', 0):,.0f}. "
+            "Các nhóm thống kê có thể giao nhau."
+        )
+        self.cards["device_original_km"].setToolTip(
+            f"Tổng toàn kỳ; km chưa phân bổ ngày: {totals.get('unallocated_device_km') or 0:,.3f}. Xem báo cáo đối soát."
+        )
         for key, card in self.cards.items():
             value = totals[key]
             if value is None:

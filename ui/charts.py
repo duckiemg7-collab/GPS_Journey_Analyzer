@@ -65,7 +65,7 @@ class ChartsPage(QWidget):
         data = self._selected()
         self._plotted = data
         if kind == "Km theo ngày":
-            daily = self.result.daily.copy()
+            daily = self.result.daily[self.result.daily["date"].notna()].copy()
             x = np.arange(len(daily))
             width = 0.26
             ax.bar(x - width, daily["device_original_km"], width, label="Thiết bị", color="#2F6B9A")

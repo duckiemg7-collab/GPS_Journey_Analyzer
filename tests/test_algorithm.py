@@ -76,7 +76,9 @@ def test_jump_18_km_and_return_confirms_false_device_km():
         ]
     )
     assert (data["algorithm_status"] == "CONFIRMED_OUTLIER").sum() == 2
-    assert data["confirmed_false_km"].sum() == pytest.approx(18.5)
+    # Retain this scenario: GPS confirmation does not prove odometer fraud.
+    assert data["confirmed_false_km"].sum() == pytest.approx(0)
+    assert data.iloc[-1]["device_anomaly_status"] == "NEED_REVIEW"
     assert data["gps_filtered_segment_km"].sum() == pytest.approx(0)
 
 
@@ -102,7 +104,8 @@ def test_multi_point_fake_cluster():
     rows += [("2026-10-04 13:47:00", 10.7060, -106.6056, 3, 24.4, "Xe chạy lại")]
     data = run(rows)
     assert (data["algorithm_status"] == "CONFIRMED_OUTLIER").sum() == 5
-    assert data["confirmed_false_km"].sum() == pytest.approx(4.4)
+    assert data["confirmed_false_km"].sum() == pytest.approx(0)
+    assert data.iloc[-1]["device_anomaly_status"] == "NEED_REVIEW"
 
 
 def test_normal_movement_is_kept():
@@ -186,7 +189,10 @@ def test_daily_summary_keeps_same_device_files_separate():
     data = detect_and_filter(validate_and_sort(pd.concat([first, second])), FilterSettings())
     daily = aggregate_daily(data, by_source_file=True)
     assert list(daily["source_file"]) == ["bao_cao_1.xlsx", "bao_cao_2.xlsx"]
-    assert list(daily["device_original_km"]) == pytest.approx([0.4, 0.6])
+    assert daily.iloc[0]["device_original_km"] == pytest.approx(0.4)
+    # The other file conflicts at identical timestamps; do not invent a second
+    # vehicle trajectory simply because it came from a different source file.
+    assert pd.isna(daily.iloc[1]["device_original_km"])
 
 
 def test_excel_timestamp_with_time_first_keeps_day_month_order():

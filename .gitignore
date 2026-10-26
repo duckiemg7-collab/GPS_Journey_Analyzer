@@ -9,4 +9,5 @@ dist/
 output/_inspection_repaired.xlsx
 *.xlsx
 *.xls
+output/audit_v12/
 

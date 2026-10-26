@@ -315,7 +315,7 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(True)
         self.logs.setPlainText("\n".join(result.logs))
         self.statusBar().showMessage(
-            f"Hoàn tất: {len(result.details):,} bản ghi, {len(result.events):,} sự kiện"
+            f"Hoàn tất: {len(result.details):,} bản ghi, {len(result.events):,} bản ghi có cảnh báo"
         )
 
     @Slot(str)

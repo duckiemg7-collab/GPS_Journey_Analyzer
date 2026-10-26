@@ -96,6 +96,8 @@ def _parse_timestamps(series: pd.Series) -> pd.Series:
         format="%H:%M:%S %d-%m-%Y",
         errors="coerce",
     )
+    iso = values.str.match(r"^\d{4}-\d{2}-\d{2}(?:[T ]|$)", na=False)
+    parsed.loc[iso] = pd.to_datetime(values.loc[iso], format="ISO8601", errors="coerce")
     missing = parsed.isna() & values.notna()
     if missing.any():
         # Fallback cho các mẫu Excel khác (datetime thật, có giây thiếu,
