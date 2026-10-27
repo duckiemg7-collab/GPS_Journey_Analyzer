@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QTableView, QVBoxLayout, QWidget
 
+from core.display_labels import warning_status_label
 from ui.dataframe_model import DataFrameModel
 
 
@@ -53,7 +54,9 @@ class GpsDetailPage(QWidget):
             "algorithm_status", "warning_reason", "source_file", "source_row",
         ]
         columns = [c for c in columns if c in frame.columns]
-        shown = frame[columns].head(10000)
+        shown = frame[columns].head(10000).copy()
+        if "algorithm_status" in shown:
+            shown["algorithm_status"] = shown["algorithm_status"].map(warning_status_label)
         self.model.set_frame(shown)
         self.note.setText(f"Hiển thị {len(shown):,}/{len(frame):,} dòng")
         self.table.resizeColumnsToContents()

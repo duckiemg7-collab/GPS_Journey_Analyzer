@@ -53,12 +53,19 @@ class DataFrameModel(QAbstractTableModel):
         if role == Qt.BackgroundRole and column == "algorithm_status":
             colors = {
                 "CONFIRMED_OUTLIER": "#FADBD8",
+                "Nhiễu GPS đã xác nhận": "#FADBD8",
                 "SUSPECTED_NOISE": "#FDEBD0",
+                "Nghi nhiễu GPS": "#FDEBD0",
                 "GPS_GAP": "#E8DAEF",
+                "Mất tín hiệu GPS": "#E8DAEF",
                 "GPS_DRIFT": "#FCF3CF",
+                "Trôi tọa độ GPS": "#FCF3CF",
                 "INVALID_COORDINATE": "#F5B7B1",
+                "Tọa độ không hợp lệ": "#F5B7B1",
                 "DUPLICATE": "#D5DBDB",
+                "Bản ghi trùng": "#D5DBDB",
                 "NEED_REVIEW": "#F9E79F",
+                "Cần kiểm tra": "#F9E79F",
             }
             if str(value) in colors:
                 return QColor(colors[str(value)])

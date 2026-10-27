@@ -132,6 +132,148 @@ def _mark_gap(frame: pd.DataFrame, index: int, reason: str) -> None:
     _append_reason(frame, index, reason)
 
 
+def _mark_stationary_drift_clouds(
+    frame: pd.DataFrame,
+    indexes: list[int],
+    stop_radius_km: float,
+    stop_speed_kmh: float,
+    max_gap_seconds: int,
+) -> None:
+    """Find parked GPS clouds made of individually small, plausible edges.
+
+    A low speed alone is not enough: slow traffic must remain valid.  A cloud
+    requires sustained near-zero/explicit-stop evidence, a nearly flat device
+    counter, substantial drawn path, little endpoint progress, and a strongly
+    circuitous trace.  Returned positions join the normal jump/return
+    segment rebuild so GPS accounting stays non-overlapping.
+    """
+    if len(indexes) < 4:
+        return
+
+    local = frame.loc[indexes]
+    speeds = pd.to_numeric(local["device_speed_kmh"], errors="coerce")
+    flags = local["device_status"].map(_status_flags)
+    explicit_stop = flags.map(lambda value: value[0])
+    near_zero_limit = min(1.0, stop_speed_kmh)
+    near_zero = speeds.notna() & speeds.le(near_zero_limit)
+    explicit_stationary = explicit_stop & ~(speeds.notna() & speeds.gt(stop_speed_kmh))
+    stationary = (near_zero | explicit_stationary).to_numpy()
+    usable = (
+        ~local["invalid_coordinate"]
+        & ~local["signal_loss_observed"]
+        & local["timestamp"].notna()
+    ).to_numpy()
+    counters = pd.to_numeric(local["device_km"], errors="coerce").to_numpy()
+    connected = np.ones(len(indexes), dtype=bool)
+    for pos in range(1, len(indexes)):
+        dt = frame.at[indexes[pos], "delta_time_seconds"]
+        connected[pos] = (
+            pd.notna(dt)
+            and 0 < dt <= max_gap_seconds
+            and not bool(frame.at[indexes[pos], "cross_day"])
+        )
+
+    stationary_runs: list[tuple[int, int, str]] = []
+    start: int | None = None
+    for pos in range(len(indexes)):
+        if stationary[pos] and usable[pos] and (pos == 0 or connected[pos]):
+            if start is None:
+                start = pos
+        else:
+            if start is not None:
+                stationary_runs.append((start, pos - 1, "near_zero"))
+            start = pos if stationary[pos] and usable[pos] else None
+    if start is not None:
+        stationary_runs.append((start, len(indexes) - 1, "near_zero"))
+
+    # Some devices derive their displayed speed from the same drifting GPS
+    # coordinates.  In that case speed can falsely show 4-15 km/h.  Detect a
+    # stronger independent pattern: a long, exactly flat counter plateau that
+    # repeatedly reports stopped states and draws a closed circuitous cloud.
+    plateau_runs: list[tuple[int, int, str]] = []
+    start = 0
+    for pos in range(1, len(indexes)):
+        same_counter = (
+            usable[pos - 1]
+            and usable[pos]
+            and connected[pos]
+            and np.isfinite(counters[pos - 1])
+            and np.isfinite(counters[pos])
+            and abs(counters[pos] - counters[pos - 1]) <= 1e-9
+        )
+        if not same_counter:
+            plateau_runs.append((start, pos - 1, "counter_plateau"))
+            start = pos
+    plateau_runs.append((start, len(indexes) - 1, "counter_plateau"))
+
+    covered: set[int] = set()
+    for start_pos, end_pos, evidence in plateau_runs + stationary_runs:
+        count = end_pos - start_pos + 1
+        min_count = 10 if evidence == "counter_plateau" else 4
+        if count < min_count or any(pos in covered for pos in range(start_pos, end_pos + 1)):
+            continue
+        start_i, end_i = indexes[start_pos], indexes[end_pos]
+        duration = (frame.at[end_i, "timestamp"] - frame.at[start_i, "timestamp"]).total_seconds()
+        min_duration = 120 if evidence == "counter_plateau" else 60
+        if duration < min_duration:
+            continue
+
+        edge_indexes = [indexes[pos] for pos in range(start_pos + 1, end_pos + 1)]
+        raw_edges = pd.to_numeric(frame.loc[edge_indexes, "raw_distance_km"], errors="coerce")
+        if raw_edges.isna().any():
+            continue
+        path_km = float(raw_edges.sum())
+        net_km = point_distance_km(
+            frame.at[start_i, "latitude"], frame.at[start_i, "longitude"],
+            frame.at[end_i, "latitude"], frame.at[end_i, "longitude"],
+        )
+        counter_edges = pd.to_numeric(frame.loc[edge_indexes, "device_km_delta"], errors="coerce")
+        if counter_edges.isna().any() or (counter_edges < 0).any():
+            continue
+        counter_progress = float(counter_edges.clip(lower=0).sum())
+
+        min_path_km = max(
+            0.150 if evidence == "counter_plateau" else 0.100,
+            stop_radius_km * (5 if evidence == "counter_plateau" else 3),
+        )
+        max_net_km = max(0.060, stop_radius_km * 2)
+        tortuosity = path_km / max(net_km, stop_radius_km, 0.001)
+        stop_ratio = float(explicit_stop.iloc[start_pos:end_pos + 1].mean())
+        if (
+            counter_progress > 0.1 + 1e-9
+            or path_km < min_path_km
+            or net_km > max_net_km
+            or tortuosity < (4.0 if evidence == "counter_plateau" else 3.0)
+            or (evidence == "counter_plateau" and stop_ratio < 0.15)
+        ):
+            continue
+
+        reason = (
+            f"Cụm GPS trôi khi xe đứng yên: đường vẽ {path_km:.3f} km, "
+            f"dịch chuyển đầu-cuối {net_km:.3f} km, công-tơ tăng {counter_progress:.3f} km"
+        )
+        # Preserve the first point as the accepted anchor and the last point as
+        # a possible return endpoint.  Interior cloud points are now confirmed
+        # by the window-level evidence even though each raw edge is small.
+        for pos in range(start_pos + 1, end_pos):
+            index = indexes[pos]
+            if frame.at[index, "algorithm_status"] not in {"INVALID_COORDINATE", "DUPLICATE", "NEED_REVIEW"}:
+                frame.at[index, "algorithm_status"] = "CONFIRMED_OUTLIER"
+                frame.at[index, "exclude_from_gps"] = True
+                frame.at[index, "event_type"] = "Stationary GPS Cloud"
+                _append_reason(frame, index, reason)
+
+        end_index = indexes[end_pos]
+        if frame.at[end_index, "algorithm_status"] == "VALID":
+            _mark_suspect(frame, end_index, reason, "Stationary GPS Cloud")
+            if frame.at[end_index, "algorithm_status"] == "SUSPECTED_NOISE":
+                frame.at[end_index, "algorithm_status"] = "GPS_DRIFT"
+        elif frame.at[end_index, "algorithm_status"] in {"SUSPECTED_NOISE", "GPS_DRIFT"}:
+            frame.at[end_index, "event_type"] = "Stationary GPS Cloud"
+            _append_reason(frame, end_index, reason)
+        covered.update(range(start_pos, end_pos + 1))
+
+
 def _confirm_returning_clusters(
     frame: pd.DataFrame,
     indexes: list[int],
@@ -295,7 +437,7 @@ def _rebuild_gps_segments(frame: pd.DataFrame, indexes: list[int], speed_limit: 
             if pos == len(indexes) - 1:
                 emit(anchor_pos, pos, "UNVERIFIED", "Unresolved GPS outlier; straight-line reference only")
             continue
-        if plausible and dt <= max_gap_seconds:
+        if plausible and (dt <= max_gap_seconds or is_return):
             if is_return:
                 frame.at[i, "exclude_from_gps"] = False
                 _append_reason(frame, i, "Rebuilt from accepted anchor; raw incoming jump remains excluded")
@@ -385,6 +527,14 @@ def detect_and_filter(frame: pd.DataFrame, settings: FilterSettings) -> pd.DataF
                 else:
                     _mark_suspect(out, i, f"Vận tốc GPS suy ra {out.at[i, 'gps_speed_kmh']:.1f} km/h vượt ngưỡng {speed_limit:.0f}", "GPS Teleport")
 
+        _mark_stationary_drift_clouds(
+            out,
+            indexes,
+            stop_radius_km,
+            settings.stop_speed_kmh,
+            effective.max_gps_gap_seconds,
+        )
+        candidate_positions = sorted(set(candidate_positions))
         _confirm_returning_clusters(out, indexes, candidate_positions, stop_radius_km, settings.stop_speed_kmh)
         _rebuild_gps_segments(out, indexes, speed_limit, effective.max_gps_gap_seconds)
 

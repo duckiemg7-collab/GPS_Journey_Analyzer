@@ -51,6 +51,7 @@ Chạy kiểm thử:
 - Không tính vận tốc khi timestamp bằng hoặc giảm.
 - Không xóa dòng. Mỗi dòng có `algorithm_status`, `warning_reason` và `exclude_from_gps`.
 - Cụm nhảy–quay lại chỉ được xác nhận khi hai biên bất khả thi, tọa độ quay về gần điểm neo, phần lớn mẫu báo xe dừng và bộ đếm km gần như không đổi trong cụm.
+- Cụm trôi gồm nhiều bước nhỏ khi xe vẫn bật khóa được xét theo cửa sổ: tốc độ sát 0 hoặc trạng thái dừng, công-tơ gần như đứng yên, đường GPS vẽ lớn, độ dịch chuyển đầu-cuối nhỏ và tỷ lệ đường vòng cao. Nếu tốc độ hiển thị cũng bị GPS kéo sai, nhánh bảo thủ hơn chỉ xác nhận trên plateau công-tơ đủ dài, có trạng thái dừng lặp lại và đường GPS khép vòng. Chuyển động dừng–chạy có tiến triển theo tuyến hoặc có công-tơ tăng không bị coi là cụm trôi.
 - GPS nhảy rồi quay về không đủ chứng minh số km công tơ cộng sai. Các khoản tăng nghi vấn ở trạng thái `device_anomaly_status=NEED_REVIEW`, chưa bị trừ. V1.2 hiện chưa có nguồn chứng cứ độc lập để tự xác nhận khoản trừ.
 - Đoạn mất GPS không được tự nối thành quãng đường chính xác.
 - Km GPS và km thiết bị được tính độc lập; ứng dụng không lấy trung bình hay ép hai kết quả khớp nhau.

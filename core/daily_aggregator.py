@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from core.display_labels import warning_status_label
+
 
 def warning_mask(data: pd.DataFrame) -> pd.Series:
     return data["algorithm_status"].ne("VALID") | data.get(
@@ -32,7 +34,7 @@ def aggregate_daily(details: pd.DataFrame, by_source_file: bool = False) -> pd.D
         unverified = canonical.loc[canonical.gps_segment_class.eq("UNVERIFIED"), "gps_unverified_segment_km"]
         warning = warning_mask(group)
         labels = group["algorithm_status"].where(group["algorithm_status"].ne("VALID"), "DEVICE_NEED_REVIEW")
-        statuses = labels.loc[warning].value_counts()
+        statuses = labels.loc[warning].map(warning_status_label).value_counts()
         row = {
             "date": date, "device_id": device,
             "device_original_km": original,

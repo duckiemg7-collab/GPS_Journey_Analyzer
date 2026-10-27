@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from PySide6.QtWidgets import QLabel, QTableView, QVBoxLayout, QWidget
 
+from core.display_labels import event_type_label, warning_status_label
 from ui.dataframe_model import DataFrameModel
 
 
@@ -28,8 +29,16 @@ class NoiseAnalysisPage(QWidget):
             "source_file", "source_row",
         ]
         columns = [c for c in columns if c in events.columns]
-        self.model.set_frame(events[columns])
+        shown = events[columns].copy()
+        if "event_type" in shown:
+            shown["event_type"] = shown["event_type"].map(event_type_label)
+        if "algorithm_status" in shown:
+            shown["algorithm_status"] = shown["algorithm_status"].map(warning_status_label)
+        self.model.set_frame(shown)
         counts = events["algorithm_status"].value_counts() if not events.empty else pd.Series(dtype=int)
-        self.summary.setText(" • ".join(f"{k}: {v:,}" for k, v in counts.items()) or "Không có cảnh báo")
+        self.summary.setText(
+            " • ".join(f"{warning_status_label(k)}: {v:,}" for k, v in counts.items())
+            or "Không có cảnh báo"
+        )
         self.table.resizeColumnsToContents()
 

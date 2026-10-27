@@ -28,6 +28,17 @@ def test_main_window_displays_reconciled_counts():
     app.processEvents()
     assert window.dashboard.cards["records"].value.text() == "2"
     assert window.dashboard.cards["events"].value.text() == "1"
+    assert "device_corrected_km" not in window.dashboard.cards
+    assert "confirmed_false_km" not in window.dashboard.cards
+    assert "Km hiệu chỉnh" not in window.dashboard.model._frame.columns
+    assert "Km sai xác nhận" not in window.dashboard.model._frame.columns
+    assert "Km thiết bị" in window.dashboard.model._frame.columns
+    assert "Km GPS lọc" in window.dashboard.model._frame.columns
+    warning_text = window.dashboard.model._frame["Chi tiết cảnh báo"].iloc[0]
+    assert "Bản ghi trùng: 1" == warning_text
+    assert "DUPLICATE" not in warning_text
+    assert "Bản ghi trùng" in window.noise.summary.text()
+    assert "DUPLICATE" not in window.noise.summary.text()
     assert result.daily.record_count.sum() == 2
     assert result.daily.warning_count.sum() == 1
     window.close()

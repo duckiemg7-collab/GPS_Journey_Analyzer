@@ -15,8 +15,6 @@ def build_daily_display(daily: pd.DataFrame) -> pd.DataFrame:
         "device_id",
         "device_original_km",
         "gps_filtered_km",
-        "device_corrected_km",
-        "confirmed_false_km",
         "warning_count",
         "warnings",
         "record_count",
@@ -37,8 +35,6 @@ def build_daily_display(daily: pd.DataFrame) -> pd.DataFrame:
         for column in (
             "device_original_km",
             "gps_filtered_km",
-            "device_corrected_km",
-            "confirmed_false_km",
             "warning_count",
             "record_count",
         ):
@@ -74,8 +70,6 @@ class DashboardPage(QWidget):
             ("records", "Tổng số bản ghi"),
             ("device_original_km", "Km thiết bị báo"),
             ("gps_filtered_km", "Km GPS sau lọc"),
-            ("device_corrected_km", "Km thiết bị hiệu chỉnh"),
-            ("confirmed_false_km", "Km lỗi xác nhận"),
             ("events", "Bản ghi có cảnh báo"),
         ]
         self.cards = {}
@@ -118,10 +112,8 @@ class DashboardPage(QWidget):
             columns={
                 "date": "Ngày",
                 "device_id": "Thiết bị",
-                "device_original_km": "Km gốc",
+                "device_original_km": "Km thiết bị",
                 "gps_filtered_km": "Km GPS lọc",
-                "device_corrected_km": "Km hiệu chỉnh",
-                "confirmed_false_km": "Km sai xác nhận",
                 "warning_count": "Cảnh báo",
                 "warnings": "Chi tiết cảnh báo",
                 "record_count": "Số bản ghi",

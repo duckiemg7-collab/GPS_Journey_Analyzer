@@ -230,3 +230,91 @@ def test_overlapping_file_views_use_same_counter_edges_as_period():
     assert files.device_original_km.sum() == pytest.approx(.2)
     assert files.record_count.sum() == len(data)
     assert period_reconciliation(data, daily).counter_reconciliation_difference_km.sum() == pytest.approx(0)
+
+
+def _offset_point(base_lat, base_lon, north_m, east_m):
+    return (
+        base_lat + north_m / 111_320.0,
+        base_lon + east_m / (111_320.0 * 0.9848),
+    )
+
+
+def test_ignition_on_stationary_gps_cloud_is_removed_as_drift():
+    """Small sub-30 m edges must not accumulate into parked mileage."""
+    base_lat, base_lon = 10.0, 106.0
+    offsets = [
+        (0, 0), (20, 0), (20, 20), (0, 20), (-20, 20),
+        (-20, 0), (-20, -20), (0, -20), (0, 0),
+    ]
+    start = pd.Timestamp("2026-10-01 08:00:00")
+    rows = []
+    for index, (north, east) in enumerate(offsets):
+        lat, lon = _offset_point(base_lat, base_lon, north, east)
+        rows.append((start + pd.Timedelta(seconds=index * 20), lat, lon, 0, 10.0, "Hoạt động"))
+    moving_lat, moving_lon = _offset_point(base_lat, base_lon, 100, 0)
+    rows.append((start + pd.Timedelta(seconds=180), moving_lat, moving_lon, 20, 10.1, "Đang chạy"))
+
+    data = analyze(rows)
+    expected_real_move = point_distance_km(base_lat, base_lon, moving_lat, moving_lon)
+
+    assert data.loc[data.timestamp.lt(start + pd.Timedelta(seconds=180)), "raw_distance_km"].sum() > 0.15
+    assert (data.algorithm_status == "CONFIRMED_OUTLIER").sum() >= 6
+    assert data.iloc[8].event_type == "Stationary GPS Cloud"
+    assert not data.iloc[8].exclude_from_gps
+    assert data.gps_filtered_segment_km.sum() == pytest.approx(expected_real_move, rel=0.02)
+
+
+def test_stop_and_go_traffic_is_not_removed_as_stationary_cloud():
+    """Slow forward progress with counter evidence is real traffic mileage."""
+    base_lat, base_lon = 10.0, 106.0
+    start = pd.Timestamp("2026-10-01 09:00:00")
+    speeds = [0, 2, 0, 4, 0, 2, 0, 4, 2]
+    counters = [20.0, 20.0, 20.0, 20.1, 20.1, 20.1, 20.1, 20.2, 20.2]
+    rows = []
+    for index in range(9):
+        lat, lon = _offset_point(base_lat, base_lon, index * 20, 0)
+        rows.append((start + pd.Timedelta(seconds=index * 20), lat, lon, speeds[index], counters[index], "Hoạt động"))
+
+    data = analyze(rows)
+    first_lat, first_lon = _offset_point(base_lat, base_lon, 0, 0)
+    last_lat, last_lon = _offset_point(base_lat, base_lon, 160, 0)
+    expected = point_distance_km(first_lat, first_lon, last_lat, last_lon)
+
+    assert not data.algorithm_status.isin(["GPS_DRIFT", "CONFIRMED_OUTLIER"]).any()
+    assert data.gps_filtered_segment_km.sum() == pytest.approx(expected, rel=0.02)
+
+
+def _noisy_speed_loop(counter_values):
+    base_lat, base_lon = 10.0, 106.0
+    offsets = [
+        (0, 0), (20, 0), (20, 20), (0, 20), (-20, 20), (-20, 0),
+        (-20, -20), (0, -20), (20, -20), (20, 0), (20, 20), (0, 20), (0, 0),
+    ]
+    speeds = [0, 7, 5, 0, 9, 6, 0, 8, 5, 0, 7, 6, 0]
+    statuses = ["Xe dừng" if speed == 0 else ("Xe chạy lại" if index % 2 else "Chạy bình thường") for index, speed in enumerate(speeds)]
+    start = pd.Timestamp("2026-10-01 10:00:00")
+    rows = []
+    for index, ((north, east), speed, status, counter) in enumerate(zip(offsets, speeds, statuses, counter_values)):
+        lat, lon = _offset_point(base_lat, base_lon, north, east)
+        rows.append((start + pd.Timedelta(seconds=index * 20), lat, lon, speed, counter, status))
+    moving_lat, moving_lon = _offset_point(base_lat, base_lon, 100, 0)
+    rows.append((start + pd.Timedelta(seconds=260), moving_lat, moving_lon, 20, counter_values[-1] + 0.1, "Đang chạy"))
+    return rows
+
+
+def test_gps_reported_speed_cloud_with_flat_counter_is_removed():
+    """GPS-derived speed can be nonzero while a parked coordinate cloud drifts."""
+    data = analyze(_noisy_speed_loop([30.0] * 13))
+
+    assert (data.algorithm_status == "CONFIRMED_OUTLIER").sum() >= 10
+    assert data.gps_confirmed_outlier_segment_km.sum() > 0.20
+    assert data.gps_filtered_segment_km.sum() < 0.12
+
+
+def test_closed_slow_route_with_counter_progress_is_not_called_drift():
+    """A real loop is retained when the independent counter progresses."""
+    counters = [30.0 + index * 0.02 for index in range(13)]
+    data = analyze(_noisy_speed_loop(counters))
+
+    assert not data.event_type.eq("Stationary GPS Cloud").any()
+    assert data.gps_filtered_segment_km.sum() > 0.30

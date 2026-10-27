@@ -67,10 +67,9 @@ class ChartsPage(QWidget):
         if kind == "Km theo ngày":
             daily = self.result.daily[self.result.daily["date"].notna()].copy()
             x = np.arange(len(daily))
-            width = 0.26
-            ax.bar(x - width, daily["device_original_km"], width, label="Thiết bị", color="#2F6B9A")
-            ax.bar(x, daily["gps_filtered_km"], width, label="GPS lọc", color="#2E8B57")
-            ax.bar(x + width, daily["device_corrected_km"], width, label="Hiệu chỉnh", color="#7E57C2")
+            width = 0.36
+            ax.bar(x - width / 2, daily["device_original_km"], width, label="Thiết bị", color="#2F6B9A")
+            ax.bar(x + width / 2, daily["gps_filtered_km"], width, label="GPS lọc", color="#2E8B57")
             ax.set_xticks(x, [pd.Timestamp(d).strftime("%d/%m") for d in daily["date"]])
             ax.set_ylabel("km")
             ax.set_title("So sánh quãng đường theo ngày")

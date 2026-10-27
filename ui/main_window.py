@@ -299,10 +299,8 @@ class MainWindow(QMainWindow):
             columns={
                 "date": "Ngày",
                 "device_id": "Thiết bị",
-                "device_original_km": "Km gốc",
+                "device_original_km": "Km thiết bị",
                 "gps_filtered_km": "Km GPS lọc",
-                "device_corrected_km": "Km hiệu chỉnh",
-                "confirmed_false_km": "Km sai xác nhận",
                 "warning_count": "Cảnh báo",
                 "warnings": "Chi tiết cảnh báo",
                 "record_count": "Số bản ghi",
