@@ -32,6 +32,67 @@ from ui.noise_analysis import NoiseAnalysisPage
 from ui.settings_panel import SettingsPage
 
 
+def _result_filter_counts(result: AnalysisResult) -> dict[str, float | int]:
+    details = result.details
+    statuses = details["algorithm_status"]
+    return {
+        "gps_km": float(result.totals.get("gps_filtered_km") or 0.0),
+        "accepted": int(details["gps_segment_class"].eq("TRUSTED").sum()),
+        "suspected": int(statuses.isin(
+            ["SUSPECTED_NOISE", "GPS_DRIFT", "CONFIRMED_OUTLIER"]
+        ).sum()),
+        "gaps": int(details["gps_segment_class"].eq("UNVERIFIED").sum()),
+    }
+
+
+def build_settings_comparison(before: AnalysisResult, after: AnalysisResult) -> str:
+    """Build a traceable before/after summary using stable source-row keys."""
+    old = _result_filter_counts(before)
+    new = _result_filter_counts(after)
+    keys = [
+        column for column in ("source_file", "source_sheet", "source_row", "device_id", "timestamp")
+        if column in before.details.columns and column in after.details.columns
+    ]
+    observed = ["algorithm_status", "gps_segment_class", "exclude_from_gps"]
+    left = before.details[keys + observed].copy()
+    right = after.details[keys + observed].copy()
+    merged = left.merge(right, on=keys, how="outer", suffixes=("_old", "_new"), indicator=True)
+    changed = merged["_merge"].ne("both")
+    for column in observed:
+        changed |= merged[f"{column}_old"].fillna("<missing>").ne(
+            merged[f"{column}_new"].fillna("<missing>")
+        )
+    affected = merged.loc[changed]
+
+    lines = [
+        f"Cấu hình trước: {before.settings.describe()}",
+        f"Ngưỡng thực trước: {before.settings.effective().describe()}",
+        f"Cấu hình mới: {after.settings.describe()}",
+        f"Ngưỡng thực mới: {after.settings.effective().describe()}",
+        "",
+        f"Km GPS trước/sau: {old['gps_km']:.3f} → {new['gps_km']:.3f} km",
+        f"Số đoạn chấp nhận trước/sau: {old['accepted']} → {new['accepted']}",
+        f"Số đoạn nghi nhiễu trước/sau: {old['suspected']} → {new['suspected']}",
+        f"Số đoạn mất/chưa xác minh trước/sau: {old['gaps']} → {new['gaps']}",
+        f"Số đoạn thay đổi trạng thái: {len(affected)}",
+    ]
+    if affected.empty:
+        lines.extend(["", "Không có đoạn dữ liệu nào chuyển trạng thái lọc với cấu hình mới."])
+    else:
+        lines.extend(["", "Các đoạn bị ảnh hưởng:"])
+        for _, row in affected.head(100).iterrows():
+            identity = ", ".join(f"{key}={row[key]}" for key in keys)
+            lines.append(
+                f"- {identity}: {row.get('algorithm_status_old', '<missing>')} / "
+                f"{row.get('gps_segment_class_old', '')} → "
+                f"{row.get('algorithm_status_new', '<missing>')} / "
+                f"{row.get('gps_segment_class_new', '')}"
+            )
+        if len(affected) > 100:
+            lines.append(f"… và {len(affected) - 100} đoạn khác.")
+    return "\n".join(lines)
+
+
 class AnalysisWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
@@ -59,6 +120,10 @@ class MainWindow(QMainWindow):
         self.selection_dirty = bool(self.paths)
         self.result: AnalysisResult | None = None
         self.thread: QThread | None = None
+        self._queued_settings: FilterSettings | None = None
+        self._active_settings: FilterSettings | None = None
+        self._active_reason = "manual"
+        self._comparison_base: AnalysisResult | None = None
         self._build_ui()
         self._apply_style()
 
@@ -244,11 +309,21 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _settings_changed(self, settings: FilterSettings):
         self.pending_settings = settings
-        if self.paths:
-            self.selection_dirty = True
-            self._refresh_selection(mark_dirty=False)
-            self.export_button.setEnabled(False)
-        self.statusBar().showMessage("Đã lưu cấu hình. Bấm Phân tích dữ liệu để áp dụng.", 8000)
+        if self._analysis_running():
+            # Latest value wins.  Returning to the active configuration also
+            # cancels an older queued request.
+            self._queued_settings = None if settings == self._active_settings else settings
+            self.statusBar().showMessage(
+                "Đang phân tích; đã xếp hàng cấu hình mới nhất để áp dụng tiếp theo."
+            )
+            return
+        if self.result is not None and self.paths:
+            self.start_analysis(settings, reason="settings", comparison_base=self.result)
+            return
+        self.statusBar().showMessage(
+            "Đã lưu cấu hình cho lần phân tích tiếp theo (chưa có dữ liệu để chạy lại).",
+            8000,
+        )
 
     def _analysis_running(self) -> bool:
         """Kiểm tra thread mà không giữ tham chiếu Qt đã bị giải phóng."""
@@ -261,16 +336,31 @@ class MainWindow(QMainWindow):
             return False
 
     @Slot(object)
-    def start_analysis(self, settings: FilterSettings):
+    def start_analysis(
+        self,
+        settings: FilterSettings,
+        *,
+        reason: str = "manual",
+        comparison_base: AnalysisResult | None = None,
+    ):
         if not self.paths:
             QMessageBox.information(self, "Chưa có dữ liệu", "Hãy chọn file hoặc thư mục Excel trước.")
             return
         if self._analysis_running():
-            self.statusBar().showMessage("Đang phân tích, vui lòng chờ kết quả hiện lên…", 5000)
+            if settings != self._active_settings:
+                self._queued_settings = settings
+            self.statusBar().showMessage("Đang phân tích; chỉ cấu hình mới nhất sẽ được chạy tiếp.", 5000)
             return
+        self._active_settings = settings
+        self._active_reason = reason
+        self._comparison_base = comparison_base
         self.progress.setRange(0, 0)
         self.analyze_button.setEnabled(False)
-        self.statusBar().showMessage("Đang đọc và phân tích dữ liệu…")
+        self.export_button.setEnabled(False)
+        self.statusBar().showMessage(
+            "Đang áp dụng bộ lọc mới…" if reason == "settings"
+            else "Đang đọc và phân tích dữ liệu…"
+        )
         self.thread = QThread(self)
         worker = AnalysisWorker(self.paths, settings)
         worker.moveToThread(self.thread)
@@ -287,6 +377,10 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _analysis_done(self, result: AnalysisResult):
+        if self._queued_settings is not None and self._queued_settings != result.settings:
+            self.statusBar().showMessage("Đã bỏ qua kết quả cũ; đang chờ áp dụng cấu hình mới nhất…")
+            return
+        comparison_base = self._comparison_base
         self.result = result
         self.progress.setRange(0, 100)
         self.progress.setValue(100)
@@ -311,6 +405,10 @@ class MainWindow(QMainWindow):
         self.selection_dirty = False
         self._refresh_selection(mark_dirty=False)
         self.export_button.setEnabled(True)
+        if self._active_reason == "settings" and comparison_base is not None:
+            comparison = build_settings_comparison(comparison_base, result)
+            self.settings.show_comparison(comparison)
+            result.logs.append("Đối chiếu cấu hình:\n" + comparison)
         self.logs.setPlainText("\n".join(result.logs))
         self.statusBar().showMessage(
             f"Hoàn tất: {len(result.details):,} bản ghi, {len(result.events):,} bản ghi có cảnh báo"
@@ -321,12 +419,31 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.analyze_button.setEnabled(bool(self.paths))
-        self.statusBar().showMessage("Phân tích thất bại")
+        if self._active_reason == "settings" and self.result is not None:
+            self.settings.show_comparison(
+                "Áp dụng cấu hình mới thất bại. Kết quả đang hiển thị vẫn dùng cấu hình cũ.\n"
+                f"Lỗi: {message}"
+            )
+            self.export_button.setEnabled(True)
+            self.statusBar().showMessage("Không áp dụng được cấu hình mới; đang giữ kết quả cũ.")
+        else:
+            self.statusBar().showMessage("Phân tích thất bại")
         QMessageBox.critical(self, "Lỗi phân tích", message)
 
     @Slot()
     def _analysis_thread_finished(self):
         self.thread = None
+        queued = self._queued_settings
+        self._queued_settings = None
+        self._active_settings = None
+        self._comparison_base = None
+        if queued is not None and self.paths:
+            self.start_analysis(
+                queued,
+                reason="settings",
+                comparison_base=self.result,
+            )
+            return
         if self.paths:
             self.analyze_button.setEnabled(True)
 

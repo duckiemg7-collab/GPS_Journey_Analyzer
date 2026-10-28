@@ -57,6 +57,23 @@ class GpsDetailPage(QWidget):
         shown = frame[columns].head(10000).copy()
         if "algorithm_status" in shown:
             shown["algorithm_status"] = shown["algorithm_status"].map(warning_status_label)
+        shown = shown.rename(
+            columns={
+                "timestamp": "Thời gian",
+                "device_id": "Thiết bị",
+                "latitude": "Vĩ độ",
+                "longitude": "Kinh độ",
+                "device_speed_kmh": "Vận tốc thiết bị (km/h)",
+                "gps_speed_kmh": "Vận tốc GPS (km/h)",
+                "device_km": "Km thiết bị",
+                "raw_distance_km": "Khoảng cách GPS thô (km)",
+                "gps_filtered_segment_km": "Km GPS lọc của đoạn",
+                "algorithm_status": "Trạng thái thuật toán",
+                "warning_reason": "Lý do cảnh báo",
+                "source_file": "File nguồn",
+                "source_row": "Dòng nguồn",
+            }
+        )
         self.model.set_frame(shown)
         self.note.setText(f"Hiển thị {len(shown):,}/{len(frame):,} dòng")
         self.table.resizeColumnsToContents()

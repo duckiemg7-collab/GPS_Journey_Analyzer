@@ -1,0 +1,18 @@
+---
+description: Bối cảnh và quy tắc an toàn bắt buộc của GPS Journey Analyzer
+alwaysApply: true
+---
+
+# GPS Journey Analyzer
+
+Trước khi sửa code, đọc `AGENTS.md`, `docs/AI_PROJECT_HANDOFF.md` và các test liên quan.
+
+- Không sửa file Excel nguồn.
+- Không ép GPS khớp công-tơ và không tự trừ km thiết bị từ bằng chứng GPS đơn lẻ.
+- Không xóa bản ghi; giữ đầy đủ trạng thái, lý do và nguồn/dòng để truy vết.
+- Không cộng gap hoặc unverified reference vào `gps_filtered_km`.
+- Mã trạng thái nội bộ giữ tiếng Anh; chỉ Việt hóa ở tầng hiển thị.
+- Sửa thuật toán phải có regression test thất bại trước, test đối nghịch chống loại nhầm và chạy toàn bộ pytest.
+- Thay đổi cách tính km phải chạy audit file thật, báo trước/sau và cập nhật `ALGORITHM_VERSION`, `CHANGELOG.md`, `docs/AI_PROJECT_HANDOFF.md`.
+- Giữ GUI/report tương thích nếu yêu cầu không nói khác.
+

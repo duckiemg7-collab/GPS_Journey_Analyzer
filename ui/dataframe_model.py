@@ -50,7 +50,7 @@ class DataFrameModel(QAbstractTableModel):
             font = QFont()
             font.setBold(True)
             return font
-        if role == Qt.BackgroundRole and column == "algorithm_status":
+        if role == Qt.BackgroundRole and column in {"algorithm_status", "Trạng thái thuật toán"}:
             colors = {
                 "CONFIRMED_OUTLIER": "#FADBD8",
                 "Nhiễu GPS đã xác nhận": "#FADBD8",

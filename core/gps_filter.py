@@ -421,7 +421,7 @@ def _rebuild_gps_segments(frame: pd.DataFrame, indexes: list[int], speed_limit: 
             emit(anchor_pos, pos, "UNVERIFIED", "Signal/time/day/coordinate gap; straight-line reference only")
             anchor_pos, pending = pos, False
             continue
-        plausible = dt > 0 and d * 3600 / dt <= speed_limit * 1.02
+        plausible = dt > 0 and d * 3600 / dt <= speed_limit + 1e-9
         # A trusted return needs a following plausible sample, or independent
         # stationary evidence. Never accept a raw teleport on speed alone.
         is_return = False
@@ -429,7 +429,7 @@ def _rebuild_gps_segments(frame: pd.DataFrame, indexes: list[int], speed_limit: 
             nxt = indexes[pos + 1]
             ndt = (frame.at[nxt, "timestamp"] - frame.at[i, "timestamp"]).total_seconds()
             nd = distance(i, nxt)
-            is_return = (0 < ndt <= max_gap_seconds and pd.notna(nd) and nd * 3600 / ndt <= speed_limit * 1.02
+            is_return = (0 < ndt <= max_gap_seconds and pd.notna(nd) and nd * 3600 / ndt <= speed_limit + 1e-9
                          and frame.at[nxt, "algorithm_status"] == "VALID"
                          and frame.at[i, "algorithm_status"] != "CONFIRMED_OUTLIER")
         if frame.at[i, "exclude_from_gps"] and not is_return:
@@ -448,7 +448,7 @@ def _rebuild_gps_segments(frame: pd.DataFrame, indexes: list[int], speed_limit: 
             prev = indexes[prev_pos]
             raw_dt = frame.at[i, "delta_time_seconds"]
             raw_d = distance(prev, i)
-            if prev_pos > anchor_pos and not confirmed[prev_pos] and 0 < raw_dt <= max_gap_seconds and raw_d * 3600 / raw_dt <= speed_limit * 1.02:
+            if prev_pos > anchor_pos and not confirmed[prev_pos] and 0 < raw_dt <= max_gap_seconds and raw_d * 3600 / raw_dt <= speed_limit + 1e-9:
                 emit(anchor_pos, prev_pos, "UNVERIFIED", "Relocated GPS; incoming route unknown")
                 emit(prev_pos, pos, "TRUSTED", "Continuous samples after GPS reacquisition")
             else:
@@ -511,7 +511,7 @@ def detect_and_filter(frame: pd.DataFrame, settings: FilterSettings) -> pd.DataF
             )
             device_delta = out.at[i, "device_km_delta"]
             device_stationary = pd.notna(device_delta) and 0 <= device_delta <= 0.1 + 1e-9
-            impossible_speed = pd.notna(out.at[i, "gps_speed_kmh"]) and out.at[i, "gps_speed_kmh"] > speed_limit * 1.02
+            impossible_speed = pd.notna(out.at[i, "gps_speed_kmh"]) and out.at[i, "gps_speed_kmh"] > speed_limit + 1e-9
             stationary_drift = stopped_edge and distance > stop_radius_km and device_stationary
             if dt > effective.max_gps_gap_seconds and distance > stop_radius_km and not (stationary_drift or impossible_speed):
                 _mark_gap(out, i, f"Khoảng cách mẫu {dt:.0f} giây; không tự nối quãng đường")
@@ -543,9 +543,13 @@ def detect_and_filter(frame: pd.DataFrame, settings: FilterSettings) -> pd.DataF
     positive = out["device_km_delta"].gt(0) & out["counter_eligible"]
     counter_speed = out["device_km_delta"] * 3600 / out["delta_time_seconds"]
     suspect = positive & (out["algorithm_status"].isin(["CONFIRMED_OUTLIER", "SUSPECTED_NOISE", "GPS_DRIFT"])
-                          | counter_speed.gt(speed_limit * 1.02))
+                          | counter_speed.gt(speed_limit + 1e-9))
     out.loc[suspect, "device_suspected_km"] = out.loc[suspect, "device_km_delta"]
     out.loc[suspect, "device_anomaly_status"] = "NEED_REVIEW"
     out.loc[suspect, "warning_reason"] += "; Counter increase needs independent evidence; no deduction"
 
+    # Keep the exact input/effective values with cached details for audit and
+    # regression tests; pandas preserves attrs through normal in-memory use.
+    out.attrs["filter_settings"] = settings.to_dict()
+    out.attrs["effective_filter_settings"] = effective.to_dict()
     return out

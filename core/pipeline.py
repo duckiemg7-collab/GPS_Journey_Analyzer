@@ -29,6 +29,12 @@ def analyze_records(
     settings = settings or FilterSettings()
     logs = list(logs or [])
     validated = validate_and_sort(raw)
+    effective = settings.effective()
+    logs.append(f"Cấu hình nhập: {settings.describe()}")
+    logs.append(
+        "Cấu hình thực truyền vào detect_and_filter: "
+        f"{effective.describe(effective=False)}"
+    )
     details = assign_warning_events(detect_and_filter(validated, settings))
     daily = aggregate_daily(details)
     file_daily = aggregate_daily(details, by_source_file=True)

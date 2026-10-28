@@ -39,6 +39,14 @@ def test_main_window_displays_reconciled_counts():
     assert "DUPLICATE" not in warning_text
     assert "Bản ghi trùng" in window.noise.summary.text()
     assert "DUPLICATE" not in window.noise.summary.text()
+    detail_columns = list(window.detail.model._frame.columns)
+    assert "timestamp" not in detail_columns
+    assert "device_id" not in detail_columns
+    assert "algorithm_status" not in detail_columns
+    assert "Thời gian" in detail_columns
+    assert "Thiết bị" in detail_columns
+    assert "Trạng thái thuật toán" in detail_columns
+    assert "Lý do cảnh báo" in detail_columns
     assert result.daily.record_count.sum() == 2
     assert result.daily.warning_count.sum() == 1
     window.close()
