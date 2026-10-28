@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.cell import WriteOnlyCell
 
 from config.settings import ALGORITHM_VERSION
+from core.display_labels import event_type_label, warning_status_label
 from core.models import AnalysisResult
 
 
@@ -24,6 +25,226 @@ AMBER = "F4B942"
 RED = "C0392B"
 WHITE = "FFFFFF"
 TEXT = "243746"
+
+
+# Chỉ dùng cho lớp trình bày trong Excel. Tên cột nội bộ được giữ nguyên để
+# thuật toán, GUI và các bước đối soát không bị ảnh hưởng.
+EXCEL_COLUMN_LABELS = {
+    "detail_index": "STT nội bộ",
+    "date": "Ngày",
+    "device_id": "Thiết bị",
+    "source_file": "File nguồn",
+    "source_sheet": "Sheet nguồn",
+    "source_row": "Dòng nguồn",
+    "timestamp": "Thời gian",
+    "latitude": "Vĩ độ",
+    "longitude": "Kinh độ",
+    "device_status": "Trạng thái thiết bị",
+    "device_speed_kmh": "Tốc độ thiết bị (km/h)",
+    "gps_speed_kmh": "Tốc độ GPS (km/h)",
+    "counter_speed_kmh": "Tốc độ theo công tơ (km/h)",
+    "device_km": "Số km thiết bị",
+    "device_km_delta": "Mức tăng km thiết bị",
+    "device_km_reset": "Thiết bị reset công tơ",
+    "device_original_km": "Km thiết bị",
+    "device_unallocated_km": "Km thiết bị chưa phân bổ",
+    "unallocated_device_km": "Km chưa phân bổ qua ngày",
+    "device_corrected_km": "Km thiết bị sau xác minh",
+    "confirmed_false_km": "Km sai đã xác nhận",
+    "device_suspected_km": "Km thiết bị nghi vấn",
+    "deducted_km": "Km đã trừ có căn cứ",
+    "raw_distance_km": "Khoảng cách GPS thô (km)",
+    "gps_raw_km": "Km GPS thô",
+    "gps_filtered_km": "Km GPS lọc",
+    "gps_unverified_km": "Km GPS chưa xác minh",
+    "gps_confirmed_outlier_km": "Km nhiễu GPS đã loại",
+    "gps_filtered_segment_km": "Km đoạn GPS được giữ",
+    "gps_unverified_segment_km": "Km đoạn GPS chưa xác minh",
+    "gps_confirmed_outlier_segment_km": "Km đoạn nhiễu GPS đã loại",
+    "gps_segment_raw_km": "Km GPS thô của đoạn",
+    "gps_segment_reference_km": "Km tham khảo của đoạn",
+    "actual_unverified_km": "Km thực tế chưa xác minh",
+    "device_counter_span_km": "Km công tơ trong đoạn",
+    "device_allocated_segment_km": "Km thiết bị đã phân bổ cho đoạn",
+    "unallocated_device_segment_km": "Km thiết bị chưa phân bổ của đoạn",
+    "delta_time_seconds": "Khoảng thời gian (giây)",
+    "gps_segment_seconds": "Thời lượng đoạn GPS (giây)",
+    "algorithm_status": "Kết quả xử lý",
+    "warning_reason": "Lý do cảnh báo",
+    "event_type": "Loại sự kiện",
+    "device_anomaly_status": "Trạng thái bất thường km thiết bị",
+    "confirmation_status": "Trạng thái xác minh",
+    "evidence": "Căn cứ đánh giá",
+    "gps_segment_class": "Phân loại đoạn GPS",
+    "gps_segment_reason": "Lý do phân loại đoạn GPS",
+    "gps_unverified_reason": "Lý do chưa xác minh",
+    "reference_kind": "Loại số liệu tham khảo",
+    "exclude_from_gps": "Loại khỏi km GPS",
+    "no_fix_coordinate": "Không có tọa độ hợp lệ",
+    "is_duplicate": "Bản ghi trùng",
+    "invalid_timestamp": "Thời gian không hợp lệ",
+    "timestamp_conflict": "Trùng thời gian khác dữ liệu",
+    "invalid_coordinate": "Tọa độ không hợp lệ",
+    "signal_loss_observed": "Ghi nhận mất tín hiệu",
+    "counter_eligible": "Đủ điều kiện tính công tơ",
+    "cross_day": "Đoạn đi qua ngày",
+    "input_order": "Thứ tự dữ liệu đầu vào",
+    "pair_start_index": "Chỉ số điểm đầu cặp",
+    "gps_unverified_start_index": "Chỉ số đầu đoạn chưa xác minh",
+    "gps_unverified_end_index": "Chỉ số cuối đoạn chưa xác minh",
+    "gps_segment_start_index": "Chỉ số đầu đoạn GPS",
+    "gps_segment_end_index": "Chỉ số cuối đoạn GPS",
+    "warning_event_id": "Mã nhóm cảnh báo",
+    "segment_id": "Mã đoạn GPS",
+    "counter_edge_id": "Mã đoạn công tơ",
+    "start_timestamp": "Thời gian bắt đầu",
+    "end_timestamp": "Thời gian kết thúc",
+    "start_latitude": "Vĩ độ bắt đầu",
+    "start_longitude": "Kinh độ bắt đầu",
+    "end_latitude": "Vĩ độ kết thúc",
+    "end_longitude": "Kinh độ kết thúc",
+    "start_source_file": "File nguồn điểm đầu",
+    "start_source_sheet": "Sheet nguồn điểm đầu",
+    "start_source_row": "Dòng nguồn điểm đầu",
+    "end_source_file": "File nguồn điểm cuối",
+    "end_source_sheet": "Sheet nguồn điểm cuối",
+    "end_source_row": "Dòng nguồn điểm cuối",
+    "start_device_km": "Số km thiết bị tại điểm đầu",
+    "end_device_km": "Số km thiết bị tại điểm cuối",
+    "start_device_status": "Trạng thái thiết bị tại điểm đầu",
+    "end_device_status": "Trạng thái thiết bị tại điểm cuối",
+    "start_device_speed_kmh": "Tốc độ thiết bị tại điểm đầu (km/h)",
+    "end_device_speed_kmh": "Tốc độ thiết bị tại điểm cuối (km/h)",
+    "warning_count": "Số cảnh báo",
+    "warnings": "Chi tiết cảnh báo",
+    "record_count": "Số bản ghi",
+    "valid_record_count": "Số bản ghi hợp lệ",
+    "duplicate_record_count": "Số bản ghi trùng",
+    "excluded_record_count": "Số bản ghi bị loại",
+    "gap_count": "Số đoạn mất tín hiệu",
+    "unique_warning_events": "Số nhóm cảnh báo",
+    "unverified_unknown_reference_count": "Số đoạn chưa đủ căn cứ",
+    "device_period_original_km": "Km thiết bị toàn kỳ",
+    "device_daily_allocated_km": "Km thiết bị đã phân bổ theo ngày",
+    "counter_reconciliation_difference_km": "Chênh lệch đối soát công tơ (km)",
+    "device_period_corrected_km": "Km thiết bị toàn kỳ sau xác minh",
+    "raw_records": "Tổng bản ghi nguồn",
+    "valid_records": "Bản ghi hợp lệ",
+    "duplicate_records": "Bản ghi trùng",
+    "excluded_records": "Bản ghi bị loại",
+    "invalid_timestamp_records": "Bản ghi sai thời gian",
+    "warning_records": "Bản ghi có cảnh báo",
+    "gap_segments": "Số đoạn GPS chưa xác minh",
+    "signal_loss_segments": "Số đoạn mất tín hiệu",
+    "counter_resets": "Số lần reset công tơ",
+    "difference_device_vs_gps_km": "Chênh lệch thiết bị và GPS (km)",
+    "label": "Ngày / thiết bị",
+    "gps_filtered_km_before": "Km GPS lọc trước sửa",
+    "gps_filtered_km_after": "Km GPS lọc sau sửa",
+    "confirmed_false_km_before": "Km sai xác nhận trước sửa",
+    "confirmed_false_km_after": "Km sai xác nhận sau sửa",
+    "device_corrected_km_before": "Km thiết bị hiệu chỉnh trước sửa",
+    "device_corrected_km_after": "Km thiết bị hiệu chỉnh sau sửa",
+    "gps_change_km": "Mức thay đổi km GPS",
+    "change_reason": "Lý do thay đổi",
+    "algorithm_status_before": "Kết quả xử lý trước sửa",
+    "algorithm_status_after": "Kết quả xử lý sau sửa",
+    "gps_minus_counter_km": "GPS trừ công tơ (km)",
+    "gps_minus_period_counter_km": "GPS trừ công tơ toàn kỳ (km)",
+    "trusted_gps_at_reported_stop_no_counter_increase_km": "Km GPS khi báo dừng và công tơ không tăng",
+    "other_trusted_gps_minus_counter_km": "Chênh lệch GPS tin cậy khác so với công tơ",
+    "counter_km_outside_trusted_gps_spans": "Km công tơ ngoài các đoạn GPS tin cậy",
+}
+
+BOOLEAN_COLUMNS = {
+    "exclude_from_gps", "no_fix_coordinate", "is_duplicate", "invalid_timestamp",
+    "timestamp_conflict", "invalid_coordinate", "signal_loss_observed", "counter_eligible",
+    "device_km_reset", "cross_day",
+}
+
+SEGMENT_CLASS_LABELS = {
+    "TRUSTED": "Đáng tin cậy",
+    "UNVERIFIED": "Chưa xác minh",
+    "OUTLIER": "Nhiễu GPS đã loại",
+    "CONFIRMED_OUTLIER": "Nhiễu GPS đã xác nhận",
+}
+
+CONFIRMATION_LABELS = {
+    "CONFIRMED": "Đã xác nhận",
+    "NEED_REVIEW": "Cần kiểm tra",
+}
+
+MODE_LABELS = {
+    "Conservative": "Thận trọng",
+    "Balanced": "Cân bằng",
+    "Aggressive": "Mạnh",
+}
+
+GPS_REASON_LABELS = {
+    "GPS day boundary": "Đoạn GPS đi qua ranh giới ngày",
+    "Signal loss": "Mất tín hiệu GPS",
+    "GPS gap": "Khoảng cách thời gian GPS quá lớn",
+    "Stationary drift": "Trôi tọa độ khi xe dừng",
+    "GPS teleport": "GPS nhảy vị trí phi thực tế",
+    "Confirmed bad GPS geometry": "Hình học GPS sai đã được xác nhận",
+    "Missing coordinate fix; reference unavailable": "Thiếu tọa độ hợp lệ; không có khoảng cách tham khảo",
+    "Signal/time/day/coordinate gap; straight-line reference only": "Gián đoạn tín hiệu, thời gian, ngày hoặc tọa độ; chỉ có khoảng cách đường thẳng tham khảo",
+    "Unresolved GPS outlier; straight-line reference only": "Điểm GPS bất thường chưa xác minh; chỉ có khoảng cách đường thẳng tham khảo",
+    "Rebuilt accepted endpoints": "Tái dựng từ các điểm đầu cuối được chấp nhận",
+    "Continuous accepted endpoints": "Các điểm đầu cuối hợp lệ liên tục",
+    "Relocated GPS; incoming route unknown": "GPS đổi vị trí; chưa biết tuyến đường đi tới",
+    "Continuous samples after GPS reacquisition": "Mẫu liên tục sau khi GPS bắt lại tín hiệu",
+    "Reacquired GPS; intervening route unknown": "GPS bắt lại tín hiệu; chưa biết tuyến đường trong khoảng gián đoạn",
+}
+
+
+def _warning_summary_label(value: object) -> object:
+    if not isinstance(value, str) or not value:
+        return value
+    parts = []
+    for item in value.split(","):
+        label, separator, count = item.strip().partition(":")
+        parts.append(f"{warning_status_label(label)}: {count.strip()}" if separator else warning_status_label(label))
+    return ", ".join(parts)
+
+
+def _localize_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Tạo bản sao dành cho Excel, không thay đổi DataFrame nội bộ."""
+    localized = frame.copy()
+    status_columns = {"algorithm_status", "device_anomaly_status", "algorithm_status_before", "algorithm_status_after"}
+    for column in status_columns.intersection(localized.columns):
+        localized[column] = localized[column].map(
+            lambda value: warning_status_label(value) if pd.notna(value) else value
+        )
+    if "event_type" in localized:
+        localized["event_type"] = localized["event_type"].map(
+            lambda value: event_type_label(value) if pd.notna(value) else value
+        )
+    if "warnings" in localized:
+        localized["warnings"] = localized["warnings"].map(_warning_summary_label)
+    if "gps_segment_class" in localized:
+        localized["gps_segment_class"] = localized["gps_segment_class"].replace(SEGMENT_CLASS_LABELS)
+    for column in {"gps_segment_reason", "gps_unverified_reason"}.intersection(localized.columns):
+        localized[column] = localized[column].replace(GPS_REASON_LABELS)
+    if "confirmation_status" in localized:
+        localized["confirmation_status"] = localized["confirmation_status"].replace(CONFIRMATION_LABELS)
+    if "reference_kind" in localized:
+        localized["reference_kind"] = localized["reference_kind"].replace({
+            "Haversine endpoint straight line; actual route unknown for UNVERIFIED":
+                "Đường thẳng Haversine giữa hai đầu mút; chưa biết hành trình thực tế",
+        })
+    if "evidence" in localized:
+        localized["evidence"] = localized["evidence"].replace({
+            "GPS/counter inconsistency; delayed upload, movement and reset cannot be ruled out. No exact false amount proven.":
+                "GPS và công tơ không nhất quán; chưa loại trừ gửi dữ liệu trễ, xe di chuyển hoặc reset công tơ. Chưa chứng minh được chính xác số km sai.",
+        })
+    for column in BOOLEAN_COLUMNS.intersection(localized.columns):
+        localized[column] = localized[column].map(
+            lambda value: "Có" if value is True or isinstance(value, np.bool_) and bool(value)
+            else "Không" if value is False or isinstance(value, np.bool_) and not bool(value)
+            else value
+        )
+    return localized.rename(columns=EXCEL_COLUMN_LABELS)
 
 
 def _safe(value):
@@ -157,26 +378,34 @@ def export_reconciliation_report(
     if per_file is not None:
         tables["Tổng hợp theo file"] = per_file
     tables.update(extra_tables or {})
-    log = [("Algorithm", ALGORITHM_VERSION), ("Settings", str(result.settings.to_dict()))]
-    log += [("Definition", text) for text in [
-        "gps_unverified_km: endpoint Haversine reference, NOT actual unknown mileage.",
-        "gps_confirmed_outlier_km: removed RAW geometry, NOT additive to rebuilt route groups.",
-        "Each canonical raw interval belongs to exactly one rebuilt segment span.",
-        "Raw/valid/duplicate/excluded/warning are record counts. Excluded, duplicate and warning overlap.",
-        "Unique warning event: consecutive same category/device/day warning records, time gap <=120s.",
-        "unallocated_device_km: cross-day counter increase; endpoint day is only an audit bucket.",
-        "Unknown actual_unverified_km is displayed as Không đủ căn cứ, never zero.",
-        "No odometer subtraction is proven by GPS jumps alone; current candidates remain NEED_REVIEW.",
+    log = [
+        ("Phiên bản thuật toán", ALGORITHM_VERSION),
+        ("Chế độ lọc", MODE_LABELS.get(result.settings.mode, result.settings.mode)),
+        ("Tốc độ GPS tối đa (km/h)", result.settings.max_plausible_speed_kmh),
+        ("Ngưỡng xe dừng (km/h)", result.settings.stop_speed_kmh),
+        ("Bán kính dừng (m)", result.settings.stop_radius_meters),
+        ("Khoảng mất GPS tối đa (giây)", result.settings.max_gps_gap_seconds),
+    ]
+    log += [("Định nghĩa", text) for text in [
+        "Km GPS chưa xác minh là khoảng cách Haversine giữa hai đầu mút, không phải quãng đường thực tế chưa biết.",
+        "Km nhiễu GPS đã loại là hình học GPS thô bị loại, không cộng thêm vào các nhóm quãng đường tái dựng.",
+        "Mỗi khoảng GPS thô hợp lệ chỉ thuộc đúng một đoạn GPS tái dựng.",
+        "Tổng, hợp lệ, trùng, bị loại và cảnh báo là số bản ghi; các nhóm bị loại, trùng và cảnh báo có thể giao nhau.",
+        "Một nhóm cảnh báo gồm các bản ghi liên tiếp cùng loại, thiết bị và ngày, cách nhau không quá 120 giây.",
+        "Km thiết bị chưa phân bổ là mức tăng qua ranh giới ngày; ngày của điểm cuối chỉ dùng làm nhóm kiểm tra.",
+        "Km thực tế chưa xác minh luôn hiển thị 'Không đủ căn cứ', không thay bằng 0.",
+        "GPS nhảy vị trí không tự chứng minh công tơ sai; các trường hợp hiện tại vẫn cần kiểm tra.",
     ]]
-    log += [("Source", str(p)) for p in result.files]
-    log += [("Log", message) for message in result.logs]
+    log += [("File nguồn", str(p)) for p in result.files]
+    log += [("Nhật ký", message) for message in result.logs]
     tables["Nhật ký thuật toán và cấu hình"] = pd.DataFrame(log, columns=["Mục", "Nội dung"])
-    for name, frame in tables.items():
+    for name, original_frame in tables.items():
+        frame = _localize_frame(original_frame)
         ws = wb.create_sheet(name)
         ws.freeze_panes = "A2"
         ws.sheet_view.showGridLines = False
-        for idx, column in enumerate(frame.columns, 1):
-            ws.column_dimensions[get_column_letter(idx)].width = 23 if "timestamp" in column else 18
+        for idx, column in enumerate(original_frame.columns, 1):
+            ws.column_dimensions[get_column_letter(idx)].width = 23 if "timestamp" in str(column) else 18
         headers = []
         for column in frame.columns:
             cell = WriteOnlyCell(ws, str(column))
@@ -186,14 +415,14 @@ def export_reconciliation_report(
         ws.append(headers)
         for values in frame.itertuples(index=False, name=None):
             cells = []
-            for column, value in zip(frame.columns, values):
+            for column, value in zip(original_frame.columns, values):
                 value = _safe(value)
                 if value is None:
                     value = "Không đủ căn cứ"
                 cell = WriteOnlyCell(ws, value)
-                if "timestamp" in column or column == "date":
+                if "timestamp" in str(column) or column == "date":
                     cell.number_format = "dd/mm/yyyy hh:mm:ss"
-                elif column.endswith("_km") or column.endswith("_kmh"):
+                elif str(column).endswith("_km") or str(column).endswith("_kmh"):
                     cell.number_format = "0.000"
                 cells.append(cell)
             ws.append(cells)
@@ -217,17 +446,7 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
         "date", "device_id", "device_original_km", "gps_filtered_km",
         "device_corrected_km", "confirmed_false_km", "warning_count", "warnings", "record_count",
     ]].copy()
-    summary.columns = [
-        "Ngày",
-        "Thiết bị",
-        "Km gốc",
-        "Km GPS lọc",
-        "Km hiệu chỉnh",
-        "Km sai xác nhận",
-        "Số cảnh báo",
-        "Cảnh báo",
-        "Số bản ghi",
-    ]
+    summary = _localize_frame(summary)
     ws = wb.create_sheet("Tổng hợp theo ngày")
     last_row, _ = _write_dataframe(ws, summary)
     total_row = last_row + 2
@@ -250,12 +469,6 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
     )
     _finish_sheet(ws)
 
-    details = result.details.reset_index(names="detail_index")
-    ws_detail = wb.create_sheet("Chi tiết GPS")
-    detail_last, _ = _write_dataframe(ws_detail, details)
-    _format_detail(ws_detail, list(details.columns), detail_last)
-    _finish_sheet(ws_detail, "E2", 34)
-
     event_columns = [
         "timestamp",
         "device_id",
@@ -276,15 +489,18 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
         "source_row",
     ]
     event_columns = [c for c in event_columns if c in result.events.columns]
+    localized_events = _localize_frame(result.events[event_columns])
     ws_events = wb.create_sheet("Điểm GPS bất thường")
-    event_last, _ = _write_dataframe(ws_events, result.events[event_columns])
+    event_last, _ = _write_dataframe(ws_events, localized_events)
     _format_detail(ws_events, event_columns, event_last)
     _finish_sheet(ws_events, "A2", 50)
 
     for name, frame in reconciliation_tables(result).items():
+        original_columns = list(frame.columns)
+        frame = _localize_frame(frame)
         audit_ws = wb.create_sheet(name)
         last, _ = _write_dataframe(audit_ws, frame)
-        _format_detail(audit_ws, list(frame.columns), last)
+        _format_detail(audit_ws, original_columns, last)
         _finish_sheet(audit_ws, "A2", 45)
 
     comparison = result.daily[
@@ -300,9 +516,11 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
     comparison["difference_device_vs_gps_km"] = (
         comparison["device_original_km"] - comparison["gps_filtered_km"]
     )
+    comparison_columns = list(comparison.columns)
+    comparison = _localize_frame(comparison)
     ws_compare = wb.create_sheet("Đối chiếu km")
     comp_last, _ = _write_dataframe(ws_compare, comparison)
-    _format_detail(ws_compare, list(comparison.columns), comp_last)
+    _format_detail(ws_compare, comparison_columns, comp_last)
     _finish_sheet(ws_compare)
 
     ws_chart = wb.create_sheet("Biểu đồ và thống kê")
@@ -338,6 +556,7 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
     chart_table = chart_data[
         ["label", "device_original_km", "gps_filtered_km", "device_corrected_km"]
     ]
+    chart_table = _localize_frame(chart_table)
     _write_dataframe(ws_chart, chart_table, chart_start)
     chart = BarChart()
     chart.type = "col"
@@ -361,11 +580,11 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
     log_rows = [
         ("Thời điểm xuất", datetime.now()),
         ("Phiên bản thuật toán", ALGORITHM_VERSION),
-        ("Chế độ lọc", result.settings.mode),
-        ("MAX_PLAUSIBLE_SPEED_KMH", result.settings.max_plausible_speed_kmh),
-        ("STOP_SPEED_KMH", result.settings.stop_speed_kmh),
-        ("STOP_RADIUS_METERS", result.settings.stop_radius_meters),
-        ("MAX_GPS_GAP_SECONDS", result.settings.max_gps_gap_seconds),
+        ("Chế độ lọc", MODE_LABELS.get(result.settings.mode, result.settings.mode)),
+        ("Tốc độ GPS tối đa (km/h)", result.settings.max_plausible_speed_kmh),
+        ("Ngưỡng xe dừng (km/h)", result.settings.stop_speed_kmh),
+        ("Bán kính dừng (m)", result.settings.stop_radius_meters),
+        ("Khoảng mất GPS tối đa (giây)", result.settings.max_gps_gap_seconds),
         ("Giới hạn", "GPS lọc là độ dài tuyến nối điểm được chấp nhận, không phải quãng đường thực tuyệt đối."),
         ("Giới hạn", "Đoạn mất GPS không được tự nối; kết quả có thể thấp hơn thực tế."),
         ("Km chưa xác minh", "Chỉ là Haversine đường thẳng tham khảo; quãng đường thực chưa biết. Không cộng với GPS lọc."),
@@ -386,7 +605,6 @@ def export_report(result: AnalysisResult, output_path: str | Path) -> Path:
     check = load_workbook(path, read_only=True, data_only=False)
     expected = {
         "Tổng hợp theo ngày",
-        "Chi tiết GPS",
         "Điểm GPS bất thường",
         "Đối chiếu km",
         "Biểu đồ và thống kê",
